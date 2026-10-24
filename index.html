@@ -56,7 +56,10 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--b);outline-offs
 .person .pc{font-family:var(--display);font-size:.85em;color:var(--c)}
 
 /* board */
-.board{display:grid;grid-template-columns:minmax(260px,.8fr) minmax(0,1.6fr) minmax(260px,1fr);gap:18px;align-items:start}
+.board{display:grid;grid-template-columns:minmax(260px,.75fr) minmax(0,2.25fr);gap:18px;align-items:start}
+.board .nowrow{font-size:1.12em;padding:12px 16px}
+.board .nowrow .who2{font-size:1.05em}
+.board .nowcard h3{font-size:1.3em}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px 18px;min-width:0}
 .card h3{margin:0 0 10px;font-family:var(--display);font-size:1.1em;display:flex;justify-content:space-between;gap:8px;align-items:baseline}
 .card h3 span{color:var(--mut);font-size:.75em;font-weight:400}
@@ -483,7 +486,7 @@ function home(c){
   const li=t=>{const p=byP(t.p);return `<li style="--c:${p.c}"><span class="dot"></span><span>${esc(t.t)}<small>${p.name}${t.kind==="tl"?` · ${fmt(t.s)}`:t.kind==="prep"?" · تجهيز":" · قبل التسليم"}</small></span></li>`};
   const right=`<div class="card"><h3>تم إنجازه <span>آخر حاجة اتعملت</span></h3><ul class="list">${doneL.length?doneL.map(li).join(""):"<li class='empty'>لسه مفيش مهام اتعلّم عليها.</li>"}</ul></div>`;
   const foot=`<div class="note">${local?"Firebase لسه مش متوصّل، فالتقدم محفوظ على الجهاز ده بس ومش هيظهر عند باقي الفريق.":"أي علامة صح أو رسالة بتظهر عند الكل في نفس اللحظة."}${!canWrite?" إنت تقدر تشوف بس.":""}</div>`;
-  return alarms()+insights(c)+who+`<section class="board">${left}${mid}${right}</section>`+foot;
+  return alarms()+insights(c)+who+`<section class="board">${left}${mid}</section>`+foot;
 }
 
 function insights(c){
