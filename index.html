@@ -185,6 +185,18 @@ td:first-child{border-right:4px solid var(--c)}
 .msgpop .send{justify-self:center;font-size:1.1em}
 @keyframes pop{from{transform:scale(.9);opacity:.4}to{transform:none;opacity:1}}
 @media (max-width:1000px){.adm{grid-template-columns:1fr}}
+.insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.ins{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px 16px;display:grid;gap:4px;border-right:6px solid var(--k,var(--t))}
+.ins small{color:var(--mut);font-size:.8em}
+.ins b{font-family:var(--display);font-size:1.15em;line-height:1.35}
+.ins .big{font-family:var(--display);font-size:clamp(24px,2.4vw,40px);font-weight:700;font-variant-numeric:tabular-nums;color:var(--k,var(--fg))}
+.ins.bad{--k:#FF6B6B}.ins.ok{--k:var(--t)}.ins.warn{--k:#FFB870}.ins.info{--k:var(--y)}
+.nextt{display:block;color:var(--mut);font-size:.8em;margin-top:2px}
+.nextt b{color:var(--fg);font-weight:600}
+.mynow{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.mynow .ins b{font-size:1.25em}
+.roomchip{font-family:var(--display);background:var(--y);color:#111;border-radius:8px;padding:4px 10px;font-weight:700;direction:ltr}
+.roomin{font-size:1.6em;text-align:center;letter-spacing:3px;text-transform:uppercase;max-width:320px;justify-self:center;direction:ltr}
 
 @media (max-width:1100px){.board{grid-template-columns:1fr 1fr}.board .nowcard{grid-column:1/-1;order:-1}}
 @media (max-width:760px){.board,.cols{grid-template-columns:1fr}.nowrow{grid-template-columns:1fr auto}.nowrow .task{grid-column:1/-1;grid-row:2}}
@@ -273,8 +285,13 @@ let done={}, help={}, msgs=[];
 let reads={}, readCol=null, siren=null;
 let db=null, col=null, helpCol=null, msgCol=null, cfgDoc=null, canWrite=true, isOwner=false, local=false;
 let view="home", gate=true, pinAsk=false, pinErr=false, adminOK=false, adminTab="ops";
+let room="", unsubs=[];
+try{room=localStorage.getItem("afa-room")||""}catch(e){}
+{const q=new URLSearchParams(location.search).get("room");if(q)room=q.toUpperCase().replace(/[^A-Z0-9-]/g,"").slice(0,20)}
+const RP=()=>"rooms/"+room+"/";
+const LK=k=>"afa-"+room+"-"+k;
 let sim=null, confirm=null, drafts={msgTo:"all",msgType:"normal"}, toast=[], firstMsgs=true, firstHelp=true;
-const LOADED=Date.now();
+let LOADED=Date.now();
 let seen={};
 try{seen=JSON.parse(localStorage.getItem("afa-seen")||"{}")}catch(e){}
 try{const v=localStorage.getItem("afa-sim");if(v!==null&&v!=="")sim=+v;}catch(e){}
@@ -319,25 +336,39 @@ async function init(){
     firebase.initializeApp(FIREBASE_CONFIG);
     db=firebase.firestore();
   }catch(e){db=null}
-  if(!db){local=true;try{done=JSON.parse(localStorage.getItem("afa-done")||"{}")}catch(e){};render();return}
-  col=db.collection("checks"); helpCol=db.collection("help"); msgCol=db.collection("msgs"); cfgDoc=db.doc("config/main"); readCol=db.collection("reads");
-  readCol.onSnapshot(s=>{const d={};s.docs.forEach(x=>{const r=x.data();(d[r.msg]=d[r.msg]||[]).push(r.who)});reads=d;render()},()=>{});
-  cfgDoc.onSnapshot(d=>{cfg={...DEF,...(d.exists?d.data():{})};applyCfg();render()},()=>{});
-  col.onSnapshot(s=>{const d={};s.docs.forEach(x=>{d[x.id]=x.data()});done=d;render()},()=>{local=true;render()});
-  helpCol.onSnapshot(s=>{const d={};s.docs.forEach(x=>{d[x.id]=x.data()});
+  if(!db)local=true;
+  connect();
+}
+function connect(){
+  unsubs.forEach(u=>{try{u()}catch(e){}});unsubs=[];
+  done={};help={};msgs=[];reads={};toast=[];cfg={...DEF};applyCfg();firstMsgs=true;firstHelp=true;LOADED=Date.now();
+  if(!room){render();return}
+  if(local||!db){local=true;try{done=JSON.parse(localStorage.getItem(LK("done"))||"{}")}catch(e){};render();return}
+  col=db.collection(RP()+"checks"); helpCol=db.collection(RP()+"help"); msgCol=db.collection(RP()+"msgs"); cfgDoc=db.doc(RP()+"config/main"); readCol=db.collection(RP()+"reads");
+  unsubs.push(readCol.onSnapshot(s=>{const d={};s.docs.forEach(x=>{const r=x.data();(d[r.msg]=d[r.msg]||[]).push(r.who)});reads=d;render()},()=>{}));
+  unsubs.push(cfgDoc.onSnapshot(d=>{cfg={...DEF,...(d.exists?d.data():{})};applyCfg();render()},()=>{}));
+  unsubs.push(col.onSnapshot(s=>{const d={};s.docs.forEach(x=>{d[x.id]=x.data()});done=d;render()},()=>{}));
+  unsubs.push(helpCol.onSnapshot(s=>{const d={};s.docs.forEach(x=>{d[x.id]=x.data()});
     if(!firstHelp&&TEAM.some(p=>d[p.id]&&d[p.id].on&&!needs(p.id))&&(view==="home"||view==="admin"))beep("help");
-    firstHelp=false;help=d;render()},()=>{});
-  msgCol.orderBy("at","desc").limit(60).onSnapshot(s=>{
+    firstHelp=false;help=d;render()},()=>{}));
+  unsubs.push(msgCol.orderBy("at","desc").limit(60).onSnapshot(s=>{
     msgs=s.docs.map(x=>({id:x.id,...x.data()}));
     if(!firstMsgs){const fresh=msgs.filter(m=>m.at>LOADED&&!seen[m.id]&&forMe(m)&&!toast.some(t=>t.id===m.id));
       if(fresh.length){toast=toast.concat(fresh.reverse())}}
-    firstMsgs=false;render()},()=>{});
+    firstMsgs=false;render()},()=>{}));
+  render();
+}
+function setRoom(code){
+  code=(code||"").toUpperCase().replace(/[^A-Z0-9-]/g,"").slice(0,20);
+  if(code.length<3)return false;
+  room=code;try{localStorage.setItem("afa-room",room)}catch(e){}
+  connect();return true;
 }
 const forMe=m=>m.to==="all"||m.to===view||view==="home"||view==="admin";
 async function toggle(id){
   if(!canWrite)return;
   const rec={done:!isDone(id),at:Date.now()};done={...done,[id]:rec};render();
-  if(local||!col){try{localStorage.setItem("afa-done",JSON.stringify(done))}catch(e){};return}
+  if(local||!col){try{localStorage.setItem(LK("done"),JSON.stringify(done))}catch(e){};return}
   try{await col.doc(id).set(rec)}catch(e){if(e&&e.code==="invalid_argument"){canWrite=false;render()}}
 }
 async function setHelp(id,on){
@@ -357,7 +388,7 @@ async function saveCfg(patch){
 }
 async function wipe(what){
   confirm=null;
-  if(what==="progress"){if(local||!col){done={};try{localStorage.removeItem("afa-done")}catch(e){}}else for(const id of Object.keys(done)){try{await col.doc(id).delete()}catch(e){}}}
+  if(what==="progress"){if(local||!col){done={};try{localStorage.removeItem(LK("done"))}catch(e){}}else for(const id of Object.keys(done)){try{await col.doc(id).delete()}catch(e){}}}
   if(what==="msgs"){if(local||!msgCol)msgs=[];else{for(const m of msgs){try{await msgCol.doc(m.id).delete()}catch(e){}}try{const rs=await readCol.get();for(const d of rs.docs){try{await readCol.doc(d.id).delete()}catch(e){}}}catch(e){}}}
   if(what==="help"){for(const id of Object.keys(help)){try{await helpCol.doc(id).delete()}catch(e){}}help={}}
   render();
@@ -387,21 +418,32 @@ function status(t,c){
   return ["idle","قادم"];
 }
 const hm=m=>`${Math.floor(m/60)}:${String(m%60).padStart(2,"0")}`;
+const hms=s=>{s=Math.max(0,Math.round(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return (h?h+":"+String(m).padStart(2,"0"):m)+":"+String(x).padStart(2,"0")};
+const nowSec=c=>c.min*60+(c.sec||0);
+const MILES=[[915,"بطاقة المشروع لازم تتنشر في الجروب"],[960,"أول نسخة من الموقع منشورة على لينك"],[990,"كريم يبعت اللينك و6 سكرينشوتات للكل"],[1050,"كل واحد يرفع النسخة النهائية في Final"],[1065,"التسليم على منصة المسابقة"],[1080,"نهاية المسابقة"]];
+const nextMile=c=>MILES.map(([m,t])=>[m+cfg.shift,t]).find(([m])=>m*60>nowSec(c));
+function curNext(p,c){
+  const ph=phase(c), ref=(ph==="before"||ph==="pre")?START():c.min;
+  const mine=TASKS.filter(t=>t.p===p.id&&t.kind==="tl");
+  const cur=ph==="after"?null:mine.find(x=>ref>=x.s&&ref<x.e)||null;
+  const nxt=mine.find(x=>x.s>=(cur?cur.e:ref)&&x!==cur&&!isDone(x.id))||null;
+  return [cur,nxt];
+}
+function cdTarget(c){const ph=phase(c);if(ph==="pre")return [START(),"إعلان المسألة بعد"];if(ph==="live")return SUBMIT()*60>nowSec(c)?[SUBMIT(),`باقي على التسليم (${fmt(SUBMIT())})`]:[END(),"وقت الاحتياطي ينتهي بعد"];return null}
 function header(c){
   const ph=phase(c);let a;
   if(ph==="before"){const d=Math.round((Date.parse(DAY)-Date.parse(c.date))/864e5);a=`<div class="chip hot"><small>باقي على المسابقة</small><b>${d} ${d===1?"يوم":"أيام"}</b></div>`}
-  else if(ph==="pre")a=`<div class="chip hot"><small>إعلان المسألة بعد</small><b class="num">${hm(START()-c.min)}</b></div>`;
-  else if(ph==="live"){const m=SUBMIT()-c.min;a=`<div class="chip hot"><small>${m>0?`باقي على التسليم (${fmt(SUBMIT())})`:"وقت الاحتياطي"}</small><b class="num">${m>0?hm(m):"—"}</b></div>`}
+  else if(ph==="pre"||ph==="live"){const [t,l]=cdTarget(c);a=`<div class="chip hot"><small id="cdl">${l}</small><b class="num" id="cdv">${hms(t*60-nowSec(c))}</b></div>`}
   else a=`<div class="chip"><small>المسابقة</small><b>انتهت</b></div>`;
-  const b=`<div class="chip"><small>${c.sim?"وقت البروفة":"الوقت الآن (الإمارات)"}</small><b class="num">${fmt(c.min)}</b></div>`;
+  const b=`<div class="chip"><small>${c.sim?"وقت البروفة":"الوقت الآن (الإمارات)"}</small><b class="num" id="clkv">${fmt(c.min)}${c.sim?"":`<span style="font-size:.6em;opacity:.7">:${String(c.sec).padStart(2,"0")}</span>`}</b></div>`;
   const where=view==="admin"?"لوحة القائد":byP(view)?byP(view).name:"شاشة الفريق";
   return `<header class="top"><img src="${LOGO}" alt="AFA Developers — Al Falah Academy">
    <div class="brand"><h1>غرفة تحكم AFA Developers</h1><p>مسابقة جامعة أبوظبي · AI for Family · الخميس 29 أكتوبر · <span dir="ltr">${fmt(START())} – ${fmt(END())}</span> مساءً${cfg.shift?` · <b style="color:var(--y)">البداية اتأخرت ${cfg.shift} دقيقة</b>`:""}</p></div>
    <div class="clock">${a}${b}</div>
-   <div class="sim"><span class="where">${esc(where)}</span>
+   <div class="sim">${room?`<span class="roomchip" title="كود الغرفة">${esc(room)}</span>`:""}<span class="where">${esc(where)}</span>
    <button class="btn ${sim!==null?"on":""}" id="simbtn">${sim!==null?"وضع البروفة شغّال":"وضع البروفة"}</button>
    ${sim!==null?`<input type="range" id="simr" min="${START()-30}" max="${END()}" step="5" value="${sim}" aria-label="وقت البروفة"><span class="num">${fmt(sim)}</span>`:""}
-   <button class="btn" id="whobtn">تغيير الشخص</button>
+   <button class="btn" id="whobtn">تغيير الشخص</button><button class="btn" id="roombtn">تغيير الغرفة</button>
    ${view!=="home"?`<button class="btn" id="homebtn">الشاشة الرئيسية ↩</button>`:""}
    <button class="btn" id="sndbtn" aria-label="الصوت">${cfg.sound?"🔊":"🔇"}</button></div></header>
    ${cfg.pinned?`<div class="pinned" role="status"><b>📌 من القائد:</b> ${esc(cfg.pinned)}</div>`:""}`;
@@ -412,10 +454,10 @@ function nowRows(c){
   const ph=phase(c);let ref=c.min;if(ph==="before"||ph==="pre")ref=START();
   return TEAM.map(p=>{
     const mine=TASKS.filter(t=>t.p===p.id&&t.kind==="tl");
-    let t=ph==="after"?null:mine.find(x=>ref>=x.s&&ref<x.e);
+    const [t,nx]=curNext(p,c);
     const late=lateOf(mine,c).length, st=t?status(t,c):["idle",ph==="after"?"خلص":"احتياطي"];
     return `<div class="nowrow ${needs(p.id)?"sos":""}" style="--c:${p.c}"><div class="who2">${needs(p.id)?"✋ ":""}${p.name}<small>${esc(p.role.split("·")[0])}</small></div>
-      <div class="task">${t?esc(t.t)+`<br><small>${rng(t.s,t.e)}</small>`:"<span style='color:var(--mut)'>مفيش مهمة في الوقت ده</span>"}${late?` <small style="color:#FF8A8A">· ${late} مهمة متأخرة</small>`:""}</div>
+      <div class="task">${t?esc(t.t)+`<br><small>${rng(t.s,t.e)}</small>`:"<span style='color:var(--mut)'>مفيش مهمة في الوقت ده</span>"}${late?` <small style="color:#FF8A8A">· ${late} مهمة متأخرة</small>`:""}${nx?`<span class="nextt">التالي ${fmt(nx.s)}: <b>${esc(nx.t)}</b></span>`:""}</div>
       <span class="pill ${st[0]}">${st[1]}</span></div>`}).join("");
 }
 function alarms(){
@@ -442,9 +484,28 @@ function home(c){
   const right=`<div class="card"><h3>القادم <span>لازم يخلص</span></h3><ul class="list">${up.length?up.map(li).join(""):"<li class='empty'>كل المهام خلصت</li>"}</ul>
     <h3 style="margin-top:16px">تم إنجازه <span>آخر حاجة اتعملت</span></h3><ul class="list">${doneL.length?doneL.map(li).join(""):"<li class='empty'>لسه مفيش مهام اتعلّم عليها.</li>"}</ul></div>`;
   const foot=`<div class="note">${local?"Firebase لسه مش متوصّل، فالتقدم محفوظ على الجهاز ده بس ومش هيظهر عند باقي الفريق.":"أي علامة صح أو رسالة بتظهر عند الكل في نفس اللحظة."}${!canWrite?" إنت تقدر تشوف بس.":""}</div>`;
-  return alarms()+who+`<section class="board">${left}${mid}${right}</section>`+foot;
+  return alarms()+insights(c)+who+`<section class="board">${left}${mid}${right}</section>`+foot;
 }
 
+function insights(c){
+  const ph=phase(c), tl=TASKS.filter(t=>t.kind==="tl");
+  const late=lateOf(TASKS,c), lateNames=[...new Set(late.map(t=>byP(t.p).name))];
+  const due=tl.filter(t=>ph==="after"||(ph==="live"&&c.min>=t.e)).length, dTL=tl.filter(t=>isDone(t.id)).length;
+  let st;
+  if(ph==="before"){const prep=TASKS.filter(t=>t.kind==="prep"),pd=prep.filter(t=>isDone(t.id)).length;st=`<div class="ins ${pd===prep.length?"ok":"info"}"><small>التجهيز قبل المسابقة</small><span class="big">${pd}/${prep.length}</span><b>${pd===prep.length?"كل التجهيز خلص ✅":`فاضل ${prep.length-pd} مهمة تجهيز`}</b></div>`}
+  else if(late.length)st=`<div class="ins bad"><small>حالة الفريق</small><span class="big">⚠ ${late.length} متأخرة</span><b>${lateNames.join("، ")}</b></div>`;
+  else st=`<div class="ins ok"><small>حالة الفريق</small><span class="big">على المسار ✅</span><b>${ph==="live"?`خلّصنا ${dTL} من ${tl.length} مهمة · المطلوب لحد دلوقتي ${due}`:"مفيش تأخير"}</b></div>`;
+  const nm=nextMile(c);
+  const ms=(ph==="pre"||ph==="live")&&nm?`<div class="ins info"><small>المحطة الجاية · ${fmt(nm[0])}</small><span class="big num" id="msv" data-t="${nm[0]}">${hms(nm[0]*60-nowSec(c))}</span><b>${esc(nm[1])}</b></div>`
+    :`<div class="ins info"><small>${ph==="before"?"المسابقة":"المحطة الجاية"}</small><span class="big">${ph==="before"?"الخميس 3:00":"—"}</span><b>${ph==="before"?"إعلان المسألة في الاجتماع مع المنظمين":"خلصت كل المحطات"}</b></div>`;
+  let idle=[];
+  if(ph==="live"){idle=TEAM.filter(p=>{const ts=TASKS.filter(t=>t.p===p.id&&isDone(t.id)).map(t=>done[t.id].at||0);const last=Math.max(0,...ts);return Date.now()-last>25*6e4&&c.min-START()>=25})}
+  const sos=TEAM.filter(p=>needs(p.id));
+  const att=sos.length?`<div class="ins bad"><small>محتاجين مساعدة</small><span class="big">✋ ${sos.length}</span><b>${sos.map(p=>p.name).join("، ")}</b></div>`
+    :idle.length?`<div class="ins warn"><small>ما علّموش على حاجة من 25 دقيقة</small><span class="big">${idle.length}</span><b>${idle.map(p=>p.name).join("، ")}</b></div>`
+    :`<div class="ins ok"><small>المساعدة</small><span class="big">0 ✋</span><b>محدش محتاج مساعدة دلوقتي</b></div>`;
+  return `<section class="insights">${st}${ms}${att}</section>`;
+}
 function member(p,c){
   const mine=TASKS.filter(t=>t.p===p.id), v=pct(mine), ph=phase(c);
   const item=t=>{const ok=isDone(t.id), cur=t.kind==="tl"&&ph==="live"&&c.min>=t.s&&c.min<t.e, st=t.kind==="tl"?status(t,c):null;
@@ -456,6 +517,7 @@ function member(p,c){
   return `<section class="card mhead" style="--c:${p.c}"><div><div class="nm">${p.name}</div><div class="rl">${esc(p.role)}</div></div>
     <div class="big"><div style="display:flex;justify-content:space-between;align-items:baseline"><span>تقدّمك</span><span class="pc num">${v}%</span></div><div class="bar"><i style="width:${v}%"></i></div>
     <small style="color:var(--mut)">${mine.filter(t=>isDone(t.id)).length} من ${mine.length} مهمة</small></div></section>
+   ${(()=>{const [cu,nx]=curNext(p,c);return `<section class="mynow" style="--c:${p.c}"><div class="ins info"><small>${phase(c)==="live"?"مهمتك دلوقتي":"أول مهمة ليك"}${cu?` · ${fmt(cu.s)} – ${fmt(cu.e)}`:""}</small><b>${cu?esc(cu.t):"مفيش مهمة في الوقت ده"}</b></div><div class="ins ok"><small>اللي بعدها${nx?` · ${fmt(nx.s)}`:""}</small><b>${nx?esc(nx.t):"خلصت مهامك 🎉"}</b></div></section>`})()}
    <button class="help ${needs(p.id)?"on":""}" data-help="${p.id}"><span class="hand">✋</span>${needs(p.id)?"طلبت مساعدة من القائد · اضغط لما تتحل":"أحتاج مساعدة من القائد"}</button>
    ${!canWrite?`<div class="banner">إنت داخل بصلاحية مشاهدة بس. اطلب من معاذ يديك صلاحية Editor.</div>`:""}
    <section class="cols" style="--c:${p.c}">
@@ -521,6 +583,11 @@ function settings(){
 }
 
 function gateHtml(){
+  if(!room)return `<div class="gate" role="dialog" aria-modal="true" aria-label="كود الغرفة"><div class="gatebox"><img src="${LOGO}" alt="AFA Developers"><h2>اكتب كود الغرفة</h2>
+    <p style="margin:0;color:var(--mut)">كل فريق له غرفة خاصة بكود. اكتب نفس الكود على كل الأجهزة والسبورة عشان تشوفوا نفس البيانات.</p>
+    <input id="roomin" class="roomin" autocomplete="off" maxlength="20" placeholder="AFA-2026" value="${esc(drafts.roomIn||"")}">
+    ${drafts.roomErr?`<div style="color:#FF8A8A">الكود لازم يكون 3 حروف أو أرقام على الأقل.</div>`:""}
+    <div class="row" style="justify-content:center"><button class="btn send" id="roomok">دخول الغرفة</button><button class="btn" id="roomnew">إنشاء غرفة جديدة</button></div></div></div>`;
   if(!gate)return "";
   const body=pinAsk?`<h2>لوحة القائد</h2><label class="lbl" for="pinin">اكتب رمز الدخول</label>
      <input id="pinin" dir="ltr" inputmode="numeric" autocomplete="off" style="max-width:220px;justify-self:center;text-align:center;font-size:1.4em" value="${esc(drafts.pinIn||"")}">
@@ -568,6 +635,9 @@ document.addEventListener("click",e=>{
   if(x=q("[data-wipe]"))return wipe(x.dataset.wipe);
   const id=e.target.closest("button")?.id;
   if(id==="whobtn"){gate=true;pinAsk=false;return render()}
+  if(id==="roombtn"){room="";try{localStorage.removeItem("afa-room")}catch(e){};gate=true;view="home";connect();return}
+  if(id==="roomok"){if(!setRoom(drafts.roomIn)){drafts.roomErr=1;render()}else{drafts.roomErr=0;gate=true;render()}return}
+  if(id==="roomnew"){drafts.roomIn="AFA-"+Math.floor(1000+Math.random()*9000);render();document.getElementById("roomin")?.focus();return}
   if(id==="homebtn")return go("home");
   if(id==="sndbtn")return saveCfg({sound:!cfg.sound});
   if(id==="adminbtn"){if(isOwner||adminOK){adminOK=true;return go("admin")}pinAsk=true;pinErr=false;render();document.getElementById("pinin")?.focus();return}
@@ -583,7 +653,7 @@ document.addEventListener("click",e=>{
   if(id==="simbtn"){sim=sim===null?START():null;try{localStorage.setItem("afa-sim",sim===null?"":sim)}catch(e){};return render()}
 });
 function tryPin(){const v=drafts.pinIn||(document.getElementById("pinin")||{}).value||"";if(v.trim()===String(cfg.pin)){adminOK=true;drafts.pinIn="";go("admin")}else{pinErr=true;render();document.getElementById("pinin")?.focus()}}
-document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.id==="pinin")tryPin()});
+document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.id==="pinin")tryPin();if(e.key==="Enter"&&e.target.id==="roomin")document.getElementById("roomok")?.click()});
 document.addEventListener("input",e=>{
   const t=e.target;
   if(t.id==="simr"){sim=+t.value;try{localStorage.setItem("afa-sim",sim)}catch(x){};return render()}
@@ -593,9 +663,18 @@ document.addEventListener("input",e=>{
   if(t.id==="phone")drafts.phone=t.value;
   if(t.id==="pinv")drafts.pinv=t.value;
   if(t.id==="pinin")drafts.pinIn=t.value;
+  if(t.id==="roomin")drafts.roomIn=t.value.toUpperCase();
 });
 document.addEventListener("change",e=>{if(e.target.id==="msgTo")drafts.msgTo=e.target.value});
-setInterval(()=>{if(sim===null&&!(document.activeElement&&/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)))render()},20000);
+let tickN=0, lastMin=-1;
+function tick(){
+  const c=clock(), typing=document.activeElement&&/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  if(!typing&&(c.min!==lastMin||++tickN%15===0)){lastMin=c.min;render();return}
+  const cd=cdTarget(c), v=document.getElementById("cdv"); if(cd&&v)v.textContent=hms(cd[0]*60-nowSec(c));
+  const k=document.getElementById("clkv"); if(k&&!c.sim)k.innerHTML=`${fmt(c.min)}<span style="font-size:.6em;opacity:.7">:${String(c.sec).padStart(2,"0")}</span>`;
+  const ms=document.getElementById("msv"); if(ms)ms.textContent=hms(+ms.dataset.t*60-nowSec(c));
+}
+setInterval(tick,1000);
 applyCfg();
 init();
 </script>
