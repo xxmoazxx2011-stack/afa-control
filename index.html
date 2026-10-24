@@ -481,8 +481,7 @@ function home(c){
   const rank=t=>t.kind==="tl"?(ph==="before"?1e4+t.s:t.s):t.kind==="prep"?(ph==="before"?0:3e4):2e4;
   up=up.sort((a,b)=>rank(a)-rank(b)).slice(0,6);
   const li=t=>{const p=byP(t.p);return `<li style="--c:${p.c}"><span class="dot"></span><span>${esc(t.t)}<small>${p.name}${t.kind==="tl"?` · ${fmt(t.s)}`:t.kind==="prep"?" · تجهيز":" · قبل التسليم"}</small></span></li>`};
-  const right=`<div class="card"><h3>القادم <span>لازم يخلص</span></h3><ul class="list">${up.length?up.map(li).join(""):"<li class='empty'>كل المهام خلصت</li>"}</ul>
-    <h3 style="margin-top:16px">تم إنجازه <span>آخر حاجة اتعملت</span></h3><ul class="list">${doneL.length?doneL.map(li).join(""):"<li class='empty'>لسه مفيش مهام اتعلّم عليها.</li>"}</ul></div>`;
+  const right=`<div class="card"><h3>تم إنجازه <span>آخر حاجة اتعملت</span></h3><ul class="list">${doneL.length?doneL.map(li).join(""):"<li class='empty'>لسه مفيش مهام اتعلّم عليها.</li>"}</ul></div>`;
   const foot=`<div class="note">${local?"Firebase لسه مش متوصّل، فالتقدم محفوظ على الجهاز ده بس ومش هيظهر عند باقي الفريق.":"أي علامة صح أو رسالة بتظهر عند الكل في نفس اللحظة."}${!canWrite?" إنت تقدر تشوف بس.":""}</div>`;
   return alarms()+insights(c)+who+`<section class="board">${left}${mid}${right}</section>`+foot;
 }
